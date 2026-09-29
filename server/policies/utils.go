@@ -110,13 +110,7 @@ func matchName(name, pattern string) bool {
 	if name == pattern {
 		return true
 	}
-	p := pattern
-	if !strings.HasPrefix(p, "^") {
-		p = "^" + p
-	}
-	if !strings.HasSuffix(p, "$") {
-		p = p + "$"
-	}
+	p := `\A(?:` + pattern + `)\z`
 	matched, err := regexp.MatchString(p, name)
 	return err == nil && matched
 }
