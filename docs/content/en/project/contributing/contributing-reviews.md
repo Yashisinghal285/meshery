@@ -34,7 +34,8 @@ The best reviews verify that the code actually works:
   ```bash
   gh pr checkout <PR_NUMBER>
   ```
-* Build and test the change locally (e.g., `make server`, `make ui`, or `mesheryctl` commands).
+* **Security & Isolation:** When building and testing untrusted pull requests, use a disposable sandbox or isolated environment (such as GitHub Codespaces, a Docker container, or a temporary environment without sensitive local credentials or cloud access tokens) before executing `make` targets or scripts.
+* Build and test the change (e.g., `make server`, `make ui`, or `mesheryctl` commands).
 * Test edge cases or scenarios that might not be covered by automated tests.
 * Share screenshots or console output demonstrating that you tested the change.
 
