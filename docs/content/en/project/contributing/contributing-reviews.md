@@ -8,6 +8,10 @@ categories: [contributing]
 Peer review is not an administrative hurdle or a maintainer-only responsibility. It is one of the most effective ways for contributors to learn the Meshery architecture, discover best practices, build relationships with peers, and improve the quality of their own code.
 {{% /alert %}}
 
+{{% alert color="warning" title="Peer Reviews Are Voluntary & Non-Blocking" %}}
+Peer reviews are entirely voluntary and non-blocking. An author is never blocked waiting for a peer review, and peer feedback does not replace required maintainer approval. Formal review and merge authority remain exclusively with repository maintainers and code owners.
+{{% /alert %}}
+
 ## Philosophy: Learning and Camaraderie, Not a Chore
 
 During the Meshery Development Meeting on September 23, the community addressed how to foster active peer review participation. A foundational takeaway was clear: **Peer review must never feel like a transactional tax or chore** (*"I have to review someone's PR before mine can be accepted"*). 
@@ -36,16 +40,16 @@ The best reviews verify that the code actually works:
 
 ### 2. Architectural & Code Quality Feedback
 * **Design & Readability:** Is the logic clean, modular, and consistent with surrounding code?
-* **Error Handling:** Does the code use Meshery's error handling conventions and error codes?
-* **Performance & Safety:** Are there unnecessary allocations, potential race conditions, or unhandled null/undefined values?
-* **Use GitHub's Suggestion Feature:** When suggesting changes, use Markdown suggestions to provide ready-to-commit diffs:
+* **Error Handling:** Does the code follow Meshery's [MeshKit error handling conventions](/project/contributing/contributing-error)? In Meshery Go code, avoid generic `errors.Wrap` or plain strings. Use component-specific error constructors from `error.go` or `errors.New` from `github.com/meshery/meshkit/errors`:
   ````markdown
   ```suggestion
   if err != nil {
-      return errors.Wrap(err, "failed to initialize component")
+      return ErrInitializeComponent(err)
   }
   ```
   ````
+* **Performance & Safety:** Are there unnecessary allocations, potential race conditions, or unhandled null/undefined values?
+* **Use GitHub's Suggestion Feature:** When suggesting changes, use Markdown suggestions to provide ready-to-commit diffs as shown above.
 
 ### 3. Contribution Hygiene & Compliance
 Help your fellow contributors get their PRs merged faster by checking contribution requirements:
@@ -66,17 +70,18 @@ Help your fellow contributors get their PRs merged faster by checking contributi
 To make peer review approachable and organic, Meshery embraces a **Pair / Share** model:
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["Author submits PR"] --> B["Author checks 'Collaborative Review'"]
-    B --> C["Peer working in same domain reviews PR"]
-    C --> D["Author & Peer exchange feedback"]
-    D --> E["Maintainer final review & merge"]
+    B --> C["Peer in same domain reviews PR"]
+    C --> D["Author and Peer exchange feedback"]
+    D --> E["Maintainer final review and merge"]
 ```
 
 ### How Pair / Share Works:
 1. **Opting-In:** When opening a PR, contributors can check the **Collaborative Review** option in the pull request template to indicate they welcome feedback from peers.
 2. **Peer Review Exchange:** Contributors working on adjacent components review each other's changes.
-3. **5-Minute Meeting Highlights:** During the weekly Meshery Development Meetings, 5 minutes are set aside to celebrate peer collaborations:
+3. **Non-Blocking & Advisory:** Peer reviews are completely voluntary and advisory. They do **not** replace required maintainer approval, but they help accelerate the maintainer's review by resolving hygiene, edge cases, and testing questions early.
+4. **5-Minute Meeting Highlights:** During the weekly Meshery Development Meetings, 5 minutes are set aside to celebrate peer collaborations:
    * Contributors are invited to share: *"I reviewed @peer's PR on component X, and it helped me understand how Y works, which helped me finish my own PR."*
 
 ---
@@ -86,50 +91,59 @@ flowchart LR
 During community discussions, the concept of a **"Review Ante"** (requiring contributors to submit reviews before submitting PRs) was evaluated:
 
 * **Findings:** Enforcing a mandatory quota or gate tends to create perverse incentives. It often leads to superficial reviews, rubber-stamping, and added friction for first-time or occasional contributors.
-* **Community Consensus:** Rather than restrictive gates, Meshery favors **positive reinforcement and transparent visibility**:
+* **Proposed Approach:** Rather than restrictive gates, this proposal suggests **positive reinforcement and transparent visibility**:
   * Tracking PRs submitted vs. PRs reviewed.
   * Publicly recognizing top peer reviewers on community leaderboards.
   * Awarding recognition badges on community profiles (e.g., Layer5 Cloud profiles).
 
 ---
 
-## Tracking Review Activity & Metrics
+## Tracking Review Activity & Metrics (Proposed)
 
-To celebrate review activity, Meshery tracks and highlights peer review contributions alongside code submissions:
+To celebrate review activity, Meshery could track and highlight peer review contributions alongside code submissions as proposed during community discussions:
 
-### GitHub API Capabilities
-Meshery leverages GitHub's standard APIs to aggregate review metrics without requiring intrusive custom infrastructure:
+### GitHub API Capabilities & Limitations
 
-* **GraphQL API (User Review Metrics):**
-  ```graphql
-  query {
-    user(login: "USERNAME") {
-      contributionsCollection {
-        totalPullRequestReviewContributions
-        pullRequestReviewContributions(first: 10) {
-          nodes {
-            pullRequest {
-              title
-              repository {
-                nameWithOwner
-              }
+GitHub provides standard APIs to aggregate review metrics without requiring intrusive custom infrastructure. Understanding the distinction between per-PR reviews and aggregated user metrics is essential:
+
+| Feature / Aspect | REST API (`/pulls/{pull_number}/reviews`) | GraphQL API (`user.contributionsCollection`) |
+| :--- | :--- | :--- |
+| **Primary Scope** | Scoped to a **single pull request** | Scoped to a **user's overall activity** |
+| **Data Returned** | Individual review objects: reviewer login, state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`), timestamp, body text. | Total count of PR reviews submitted (`totalPullRequestReviewContributions`) across date ranges. |
+| **Best Use Case** | Inspecting if a specific PR has received qualified peer reviews before maintainer triage. | Surfacing aggregate review statistics for contributor leaderboards and recognition. |
+| **Limitations** | Requires querying PR-by-PR or subscribing to `pull_request_review` webhooks; higher API call overhead for historical audits. | Counts all reviews equally regardless of review length or depth; aggregates across all repositories unless filtered; does not count general issue comments. |
+
+#### GraphQL Query Example (Aggregated User Review Metrics)
+```graphql
+query {
+  user(login: "USERNAME") {
+    contributionsCollection {
+      totalPullRequestReviewContributions
+      pullRequestReviewContributions(first: 10) {
+        nodes {
+          pullRequest {
+            title
+            repository {
+              nameWithOwner
             }
           }
         }
       }
     }
   }
-  ```
+}
+```
 
-* **REST API (PR Review Tracking):**
-  ```http
-  GET /repos/meshery/meshery/pulls/{pull_number}/reviews
-  ```
+#### REST API Example (Per-PR Review Tracking)
+```http
+GET /repos/meshery/meshery/pulls/{pull_number}/reviews
+```
 
-### Visibility & Community Badges
-Review metrics are integrated into community recognition systems:
-* **Contributor Leaderboard:** Highlighting contributors who actively support peers through reviews.
-* **Profile Badges:** Recognizing contributors who consistently provide thorough, constructive feedback.
+### Proposed Visibility & Community Badges
+
+A future community recognition system could use review metrics for:
+* **Contributor Leaderboard (Proposed):** Highlighting contributors who actively support peers through reviews alongside code contributions.
+* **Profile Badges (Proposed):** Recognizing contributors who consistently provide thorough, constructive feedback on their Layer5/Meshery profiles.
 
 ---
 
