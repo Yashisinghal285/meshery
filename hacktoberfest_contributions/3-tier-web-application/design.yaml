@@ -1,12 +1,51 @@
 name: 3-Tier Web Application on Kubernetes
 schemaVersion: designs.meshery.io/v1beta1
-version: 0.0.1
+version: 0.0.2
 metadata:
-  description: "A 3-tier cloud-native architecture connecting a React/Nginx frontend UI, a FastAPI backend API, and a PostgreSQL database using Kubernetes Deployments, Services, ConfigMaps, and Secrets."
+  description: "A 3-tier cloud-native architecture connecting an Nginx web frontend UI, a FastAPI backend API, and a PostgreSQL database using Kubernetes Deployments, Services, ConfigMaps, PersistentVolumeClaims, Secrets, and a dedicated Namespace."
   categories:
     - App Delivery
     - Cloud Native
+  prerequisites:
+    - "Set a secure password for the 'POSTGRES_PASSWORD' key in 'postgres-secret' at deployment time."
 components:
+  - id: comp-namespace
+    schemaVersion: components.meshery.io/v1beta1
+    version: v1.0.0
+    displayName: Three-Tier App Namespace
+    format: JSON
+    model:
+      name: kubernetes
+      version: v1.28.0
+    component:
+      kind: Namespace
+      version: v1
+    configuration:
+      metadata:
+        name: three-tier-app
+        labels:
+          app.kubernetes.io/name: three-tier-app
+
+  - id: comp-frontend-config
+    schemaVersion: components.meshery.io/v1beta1
+    version: v1.0.0
+    displayName: Frontend ConfigMap
+    format: JSON
+    model:
+      name: kubernetes
+      version: v1.28.0
+    component:
+      kind: ConfigMap
+      version: v1
+    configuration:
+      metadata:
+        name: frontend-config
+        namespace: three-tier-app
+        labels:
+          app: frontend-ui
+      data:
+        BACKEND_API_URL: "http://backend-service:8000"
+
   - id: comp-frontend-dep
     schemaVersion: components.meshery.io/v1beta1
     version: v1.0.0
@@ -38,6 +77,12 @@ components:
                 ports:
                   - containerPort: 80
                     name: http
+                env:
+                  - name: BACKEND_API_URL
+                    valueFrom:
+                      configMapKeyRef:
+                        name: frontend-config
+                        key: BACKEND_API_URL
 
   - id: comp-frontend-svc
     schemaVersion: components.meshery.io/v1beta1
@@ -62,6 +107,29 @@ components:
           - port: 80
             targetPort: 80
             name: http
+
+  - id: comp-backend-config
+    schemaVersion: components.meshery.io/v1beta1
+    version: v1.0.0
+    displayName: Backend ConfigMap
+    format: JSON
+    model:
+      name: kubernetes
+      version: v1.28.0
+    component:
+      kind: ConfigMap
+      version: v1
+    configuration:
+      metadata:
+        name: backend-config
+        namespace: three-tier-app
+        labels:
+          app: fastapi-backend
+      data:
+        DB_HOST: "postgres-service"
+        DB_PORT: "5432"
+        DB_NAME: "appdb"
+        DB_USER: "appuser"
 
   - id: comp-backend-dep
     schemaVersion: components.meshery.io/v1beta1
@@ -94,6 +162,32 @@ components:
                 ports:
                   - containerPort: 8000
                     name: http
+                env:
+                  - name: DB_HOST
+                    valueFrom:
+                      configMapKeyRef:
+                        name: backend-config
+                        key: DB_HOST
+                  - name: DB_PORT
+                    valueFrom:
+                      configMapKeyRef:
+                        name: backend-config
+                        key: DB_PORT
+                  - name: DB_NAME
+                    valueFrom:
+                      configMapKeyRef:
+                        name: backend-config
+                        key: DB_NAME
+                  - name: DB_USER
+                    valueFrom:
+                      configMapKeyRef:
+                        name: backend-config
+                        key: DB_USER
+                  - name: DB_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: postgres-secret
+                        key: POSTGRES_PASSWORD
 
   - id: comp-backend-svc
     schemaVersion: components.meshery.io/v1beta1
@@ -118,6 +212,29 @@ components:
           - port: 8000
             targetPort: 8000
             name: http
+
+  - id: comp-postgres-secret
+    schemaVersion: components.meshery.io/v1beta1
+    version: v1.0.0
+    displayName: PostgreSQL Secret
+    format: JSON
+    model:
+      name: kubernetes
+      version: v1.28.0
+    component:
+      kind: Secret
+      version: v1
+    configuration:
+      metadata:
+        name: postgres-secret
+        namespace: three-tier-app
+        labels:
+          app: postgres
+      type: Opaque
+      stringData:
+        POSTGRES_DB: appdb
+        POSTGRES_USER: appuser
+        POSTGRES_PASSWORD: ""
 
   - id: comp-postgres-pvc
     schemaVersion: components.meshery.io/v1beta1
@@ -174,9 +291,15 @@ components:
                     name: postgres
                 env:
                   - name: POSTGRES_DB
-                    value: "appdb"
+                    valueFrom:
+                      secretKeyRef:
+                        name: postgres-secret
+                        key: POSTGRES_DB
                   - name: POSTGRES_USER
-                    value: "appuser"
+                    valueFrom:
+                      secretKeyRef:
+                        name: postgres-secret
+                        key: POSTGRES_USER
                   - name: POSTGRES_PASSWORD
                     valueFrom:
                       secretKeyRef:
@@ -218,9 +341,9 @@ relationships:
   - id: rel-frontend-to-backend
     schemaVersion: relationships.meshery.io/v1beta1
     version: v1.0.0
-    kind: Edge
-    type: Network
-    subType: HTTP
+    kind: edge
+    type: non-binding
+    subType: network
     selectors:
       - allow:
           from:
@@ -237,9 +360,9 @@ relationships:
   - id: rel-backend-to-postgres
     schemaVersion: relationships.meshery.io/v1beta1
     version: v1.0.0
-    kind: Edge
-    type: Network
-    subType: TCP
+    kind: edge
+    type: non-binding
+    subType: network
     selectors:
       - allow:
           from:
