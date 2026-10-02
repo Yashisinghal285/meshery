@@ -1,13 +1,17 @@
 name: 3-Tier Web Application on Kubernetes
 schemaVersion: designs.meshery.io/v1beta1
-version: 0.0.2
+version: 0.0.3
 metadata:
   description: "A 3-tier cloud-native architecture connecting an Nginx web frontend UI, a FastAPI backend API, and a PostgreSQL database using Kubernetes Deployments, Services, ConfigMaps, PersistentVolumeClaims, Secrets, and a dedicated Namespace."
   categories:
     - App Delivery
     - Cloud Native
   prerequisites:
-    - "Set a secure password for the 'POSTGRES_PASSWORD' key in 'postgres-secret' at deployment time."
+    - "Set a secure password for the 'POSTGRES_PASSWORD' key in 'postgres-secret' at deployment time or pre-provision it via secret management (e.g., SealedSecrets, External Secrets Operator) before applying to prevent credential overwrite."
+  notes:
+    - "Frontend Reverse Proxy: Uses Nginx alpine's built-in envsubst template mechanism (/etc/nginx/templates/default.conf.template) to route /api/ traffic dynamically to the FastAPI backend service (${BACKEND_API_URL})."
+    - "Backend Configuration: The tiangolo/uvicorn-gunicorn-fastapi image runs the ASGI application server; the DB_* environment variables establish the connection contract consumed by FastAPI application code."
+    - "Database Persistence & Workload Strategy: PostgreSQL uses 'strategy.type: Recreate' and 'PGDATA: /var/lib/postgresql/data/pgdata' to ensure safe single-replica mounting and prevent multi-attach conflicts on ReadWriteOnce (RWO) storage during redeployment."
 components:
   - id: comp-namespace
     schemaVersion: components.meshery.io/v1beta1
@@ -45,6 +49,26 @@ components:
           app: frontend-ui
       data:
         BACKEND_API_URL: "http://backend-service:8000"
+        default.conf.template: |
+          server {
+              listen 80;
+              server_name localhost;
+
+              location / {
+                  root /usr/share/nginx/html;
+                  index index.html index.htm;
+                  try_files $uri $uri/ /index.html;
+              }
+
+              location /api/ {
+                  proxy_pass ${BACKEND_API_URL}/;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
 
   - id: comp-frontend-dep
     schemaVersion: components.meshery.io/v1beta1
@@ -83,6 +107,17 @@ components:
                       configMapKeyRef:
                         name: frontend-config
                         key: BACKEND_API_URL
+                volumeMounts:
+                  - name: nginx-conf-template
+                    mountPath: /etc/nginx/templates/default.conf.template
+                    subPath: default.conf.template
+            volumes:
+              - name: nginx-conf-template
+                configMap:
+                  name: frontend-config
+                  items:
+                    - key: default.conf.template
+                      path: default.conf.template
 
   - id: comp-frontend-svc
     schemaVersion: components.meshery.io/v1beta1
@@ -275,6 +310,8 @@ components:
         namespace: three-tier-app
       spec:
         replicas: 1
+        strategy:
+          type: Recreate
         selector:
           matchLabels:
             app: postgres
@@ -290,6 +327,8 @@ components:
                   - containerPort: 5432
                     name: postgres
                 env:
+                  - name: PGDATA
+                    value: /var/lib/postgresql/data/pgdata
                   - name: POSTGRES_DB
                     valueFrom:
                       secretKeyRef:
